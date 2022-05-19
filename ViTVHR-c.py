@@ -465,6 +465,12 @@ def load_data(tot):
     return (train_video, train_bvp), (val_video, val_bvp), (test_video, test_bvp)
 
 
+(train_video,train_bvp),(val_video,val_bvp),(test_video,test_bvp) = load_data(len(allvideo))
+
+train_video, train_bvp = torch.cat(train_video[:]), torch.cat(train_bvp[:])
+#val_video, val_bvp     = torch.cat(val_video[:]), torch.cat(val_bvp[:])
+test_video, test_bvp   = torch.cat(test_video[:]), torch.cat(test_bvp[:])
+
 
 def save_ckp(model, optimizer, epoch, loss, iteration, path="."):
     checkpoint = {
@@ -502,49 +508,19 @@ class Neg_Pearson(nn.Module):    # Pearson range [-1, 1] so if < 0, abs|loss| ; 
         loss = loss/preds.shape[0]
         return loss
 
-class AvgrageMeter(object):
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.avg = 0
-        self.sum = 0
-        self.cnt = 0
-        
-    def update(self, val, n=1):
-        self.sum += val * n
-        self.cnt += n
-        self.avg = self.sum / self.cnt
-
-        
-    
 def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
-    criterion_reg = nn.MSELoss()
-    criterion_L1loss = nn.L1Loss()
-    criterion_class = nn.CrossEntropyLoss()
-    criterion_Pearson = Neg_Pearson()
-
     a_start = 0.1
     b_start = 1.0
     exp_a = 0.5
     exp_b = 5.0
-
-    epoch_loss = []
-    
     for epoch in range(epoch_start, epochs):
         print("\nStarting epoch", epoch+1)
         current_loss = 0.0
         loss = 0.0
-        loss_rPPG_avg = AvgrageMeter()
-        loss_peak_avg = AvgrageMeter()
-        loss_kl_avg_test = AvgrageMeter()
-        loss_bvp_mae = AvgrageMeter()
-        
-        model.train()
-        
+
         for i, data in enumerate(trainloader,0):
             sys.stdout.write('\r')
-            sys.stdout.write(f"Iteration {i+1}, {loss_rPPG_avg.avg:1.5f}, {loss_peak_avg.avg:1.5f}, {loss_kl_avg_test.avg:1.5f}")
+            sys.stdout.write(f"Iteration {i+1}, {loss/BATCH:1.5f}")
             sys.stdout.flush()
             if i >= iter_start: 
                 iter_start = 0
@@ -553,7 +529,7 @@ def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
                 optimizer.zero_grad()
                 rPPG = model(inputs,0.2)   
                 rPPG = (rPPG-torch.mean(rPPG)) /torch.std(rPPG)
-
+                
                 #loss
                 loss_rPPG = criterion_Pearson(rPPG, targets)
                 fre_loss = 0.0
@@ -567,44 +543,37 @@ def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
                     train_mae = train_mae + train_mae_temp
                 fre_loss = fre_loss/inputs.shape[0]
                 kl_loss = kl_loss/inputs.shape[0]
-                train_mae = train_mae/inputs.shape[0]
+                train_mae = train_mae/inputs.shape[0]   
                 if epoch >25:
                     a = 0.05
                     b = 5.0
-
                 else:
                     a = a_start*math.pow(exp_a, epoch/25.0)
                     b = b_start*math.pow(exp_b, epoch/25.0)
             
                 a = 0.1
                 #b = 1.0
-
+            
                 loss =  a*loss_rPPG + b*(fre_loss+kl_loss)
-
+                
                 loss.backward()
                 optimizer.step()
-
-                n = inputs.size(0)
-                loss_rPPG_avg.update(loss_rPPG.data, n)
-                loss_peak_avg.update(fre_loss.data, n)
-                loss_kl_avg_test.update(kl_loss.data, n)
-                loss_bvp_mae.update(train_mae, n)
-
                 save_ckp(model, optimizer, loss, epoch, i)
+            
+                '''
+                outputs = torch.mean(outputs,1)
+                loss = loss_function(outputs, targets)
+                loss.backward()
+                optimizer.step()
+                current_loss += loss.item()
+                sys.stdout.write('\r')
+                sys.stdout.write(f"Iteration {i}, Loss:  {current_loss/BATCH:1.5f}")
+                sys.stdout.flush()
+                if i % 10 == 0:
+                    last_loss = current_loss
+                    current_loss = 0.0'''
 
-        epoch_loss.append((loss_rPPG_avg, loss_peak_avg, loss_kl_avg_test, loss_bvp_mae, loss))
-        with open('epoch_loss.sv', 'wb') as f:
-            pickle.dump(epoch_loss,f)
-    return model, loss, loss_rPPG_avg, loss_peak_avg, loss_kl_avg_test, loss_bvp_mae
-
-
-
-(train_video,train_bvp),(val_video,val_bvp),(test_video,test_bvp) = load_data(len(allvideo))
-
-train_video, train_bvp = torch.cat(train_video[:]), torch.cat(train_bvp[:])
-#val_video, val_bvp     = torch.cat(val_video[:]), torch.cat(val_bvp[:])
-test_video, test_bvp   = torch.cat(test_video[:]), torch.cat(test_bvp[:])
-
+    return model, loss
 
 BATCH = 4
 #train_video = train_video.permute(0,4,1,2,3)
@@ -622,7 +591,7 @@ loss_function = nn.L1Loss()
 criterion_Pearson = Neg_Pearson() 
 
 loss = 0.0
-epochs = 10
+epochs = 25
 
 
 #model.cuda()

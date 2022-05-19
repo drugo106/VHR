@@ -24,18 +24,18 @@ def kl_loss(inputs, labels):
 
 
  
-class TorchLossComputer(object):
+class TorchLossComputerCPU(object):
     @staticmethod
     def compute_complex_absolute_given_k(output, k, N):
         two_pi_n_over_N = Variable(2 * math.pi * torch.arange(0, N, dtype=torch.float), requires_grad=True) / N
         hanning = Variable(torch.from_numpy(np.hanning(N)).type(torch.FloatTensor), requires_grad=True).view(1, -1)
 
-        k = k.type(torch.FloatTensor).cuda()
-        two_pi_n_over_N = two_pi_n_over_N.cuda()
-        hanning = hanning.cuda()
+        k = k.type(torch.FloatTensor)#.cuda()
+        #two_pi_n_over_N = two_pi_n_over_N.cuda()
+        #hanning = hanning.cuda()
             
         output = output.view(1, -1) * hanning
-        output = output.view(1, 1, -1).type(torch.cuda.FloatTensor)
+        output = output.view(1, 1, -1)#.type(torch.cuda.FloatTensor)
         k = k.view(1, -1, 1)
         two_pi_n_over_N = two_pi_n_over_N.view(1, 1, -1)
         complex_absolute = torch.sum(output * torch.sin(k * two_pi_n_over_N), dim=-1) ** 2 \
@@ -54,7 +54,7 @@ class TorchLossComputer(object):
         k = feasible_bpm / unit_per_hz
         
         # only calculate feasible PSD range [0.7,4]Hz
-        complex_absolute = TorchLossComputer.compute_complex_absolute_given_k(output, k, N)
+        complex_absolute = TorchLossComputerCPU.compute_complex_absolute_given_k(output, k, N)
 
         return (1.0 / complex_absolute.sum()) * complex_absolute	# Analogous Softmax operator
         
@@ -63,10 +63,10 @@ class TorchLossComputer(object):
     def cross_entropy_power_spectrum_loss(inputs, target, Fs):
         inputs = inputs.view(1, -1)
         target = target.view(1, -1)
-        bpm_range = torch.arange(40, 180, dtype=torch.float).cuda()
+        bpm_range = torch.arange(40, 180, dtype=torch.float)#.cuda()
         #bpm_range = torch.arange(40, 260, dtype=torch.float).cuda()
 
-        complex_absolute = TorchLossComputer.complex_absolute(inputs, Fs, bpm_range)
+        complex_absolute = TorchLossComputerCPU.complex_absolute(inputs, Fs, bpm_range)
 
         whole_max_val, whole_max_idx = complex_absolute.view(-1).max(0)
         whole_max_idx = whole_max_idx.type(torch.float)
@@ -80,10 +80,10 @@ class TorchLossComputer(object):
     def cross_entropy_power_spectrum_focal_loss(inputs, target, Fs, gamma):
         inputs = inputs.view(1, -1)
         target = target.view(1, -1)
-        bpm_range = torch.arange(40, 180, dtype=torch.float).cuda()
+        bpm_range = torch.arange(40, 180, dtype=torch.float)#.cuda()
         #bpm_range = torch.arange(40, 260, dtype=torch.float).cuda()
 
-        complex_absolute = TorchLossComputer.complex_absolute(inputs, Fs, bpm_range)
+        complex_absolute = TorchLossComputerCPU.complex_absolute(inputs, Fs, bpm_range)
 
         whole_max_val, whole_max_idx = complex_absolute.view(-1).max(0)
         whole_max_idx = whole_max_idx.type(torch.float)
@@ -98,11 +98,11 @@ class TorchLossComputer(object):
     @staticmethod
     def cross_entropy_power_spectrum_forward_pred(inputs, Fs):
         inputs = inputs.view(1, -1)
-        bpm_range = torch.arange(40, 190, dtype=torch.float).cuda()
+        bpm_range = torch.arange(40, 190, dtype=torch.float)#.cuda()
         #bpm_range = torch.arange(40, 180, dtype=torch.float).cuda()
         #bpm_range = torch.arange(40, 260, dtype=torch.float).cuda()
 
-        complex_absolute = TorchLossComputer.complex_absolute(inputs, Fs, bpm_range)
+        complex_absolute = TorchLossComputerCPU.complex_absolute(inputs, Fs, bpm_range)
 
         whole_max_val, whole_max_idx = complex_absolute.view(-1).max(0)
         whole_max_idx = whole_max_idx.type(torch.float)
@@ -114,18 +114,18 @@ class TorchLossComputer(object):
 
         target_distribution = [normal_sampling(int(target), i, std) for i in range(140)]
         target_distribution = [i if i > 1e-15 else 1e-15 for i in target_distribution]
-        target_distribution = torch.Tensor(target_distribution).cuda()
+        target_distribution = torch.Tensor(target_distribution)#.cuda()
         
         #pdb.set_trace()
         
-        rank = torch.Tensor([i for i in range(140)]).cuda()
+        rank = torch.Tensor([i for i in range(140)])#.cuda()
         
         inputs = inputs.view(1, -1)
         target = target.view(1, -1)
         
-        bpm_range = torch.arange(40, 180, dtype=torch.float).cuda()
+        bpm_range = torch.arange(40, 180, dtype=torch.float)#.cuda()
 
-        complex_absolute = TorchLossComputer.complex_absolute(inputs, Fs, bpm_range)
+        complex_absolute = TorchLossComputerCPU.complex_absolute(inputs, Fs, bpm_range)
         
         fre_distribution = F.softmax(complex_absolute.view(-1))
         loss_distribution_kl = kl_loss(fre_distribution, target_distribution)
