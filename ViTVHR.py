@@ -533,7 +533,7 @@ def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
     
     for epoch in range(epoch_start, epochs):
         print("\nStarting epoch", epoch+1)
-        current_loss = 0.0
+        cnt = 0.0
         loss = 0.0
         loss_rPPG_avg = AvgrageMeter()
         loss_peak_avg = AvgrageMeter()
@@ -543,13 +543,14 @@ def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
         model.train()
         
         for i, data in enumerate(trainloader,0):
+            cnt+=1
             sys.stdout.write('\r')
-            sys.stdout.write(f"Iteration {i+1}, {loss_rPPG_avg.avg:1.5f}, {loss_peak_avg.avg:1.5f}, {loss_kl_avg_test.avg:1.5f}")
+            sys.stdout.write(f"Iteration {i+1}, {loss/cnt:1.5f}, {loss_rPPG_avg.avg:1.5f}, {loss_peak_avg.avg:1.5f}, {loss_kl_avg_test.avg:1.5f}")
             sys.stdout.flush()
             if i >= iter_start: 
                 iter_start = 0
                 inputs, targets = data
-                inputs, targets = inputs.float(), targets.float()
+                inputs, targets = inputs.float().cuda(), targets.float().cuda()
                 optimizer.zero_grad()
                 rPPG = model(inputs,0.2)   
                 rPPG = (rPPG-torch.mean(rPPG)) /torch.std(rPPG)
@@ -560,7 +561,7 @@ def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
                 kl_loss = 0.0
                 train_mae = 0.0
                 for bb in range(inputs.shape[0]):
-                    loss_distribution_kl, fre_loss_temp, train_mae_temp = TorchLossComputerCPU.cross_entropy_power_spectrum_DLDL_softmax2(
+                    loss_distribution_kl, fre_loss_temp, train_mae_temp = TorchLossComputer.cross_entropy_power_spectrum_DLDL_softmax2(
                         rPPG[bb], torch.mean(targets[bb].float()), 30, std=1.0)  # std=1.1
                     fre_loss = fre_loss + fre_loss_temp
                     kl_loss = kl_loss + loss_distribution_kl
@@ -625,7 +626,7 @@ loss = 0.0
 epochs = 10
 
 
-#model.cuda()
+model = model.cuda()
 model.train() 
 print("iterations per epoch: ",len(trainloader)) 
 print("epochs: {0}\nStart".format(epochs)) 
