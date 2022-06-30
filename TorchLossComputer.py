@@ -113,6 +113,7 @@ class TorchLossComputer(object):
     def cross_entropy_power_spectrum_DLDL_softmax2(inputs, target, Fs, std):
 
         target_distribution = [normal_sampling(int(target), i, std) for i in range(140)]
+        print(target_distribution)
         target_distribution = [i if i > 1e-15 else 1e-15 for i in target_distribution]
         target_distribution = torch.Tensor(target_distribution).cuda()
         
