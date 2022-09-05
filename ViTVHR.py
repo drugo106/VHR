@@ -8,6 +8,7 @@ import torchvision.transforms as T
 import sys 
 from torchinfo import summary
 from scipy import signal
+from scipy.stats import zscore
 import pyVHR as vhr
 import pickle
 from typing import Optional
@@ -68,7 +69,7 @@ def load_data(tot):
             (webs,labels) = pickle.load(f)
             if idx < ((tot/10)*9)-1:   #9 : 0 : 1
                 train_video.append(webs)
-                train_bvp.append(labels)
+                train_bvp.append(zscore(labels))
             #elif idx < (tot/10)*8+(tot/10):
                 #print(2)
                 #val_video.append(webs)
@@ -76,7 +77,7 @@ def load_data(tot):
             else:
                 #print(3)
                 test_video.append(webs)
-                test_bvp.append(labels)
+                test_bvp.append(zscore(labels))
             if min_len==0 or len(webs)<min_len:
                 min_len = len(webs)
     for i in range(0,len(train_video)):
@@ -169,7 +170,6 @@ criterion_Pearson = Neg_Pearson()
 loss = 0.0
 epochs = 15
 
-
 def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
     criterion_reg = nn.MSELoss()
     criterion_L1loss = nn.L1Loss()
@@ -214,7 +214,7 @@ def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
                 fre_loss = 0.0
                 kl_loss = 0.0
                 train_mae = 0.0
-                for bb in range(inputs.shape[0]):
+                """for bb in range(inputs.shape[0]):
                     loss_distribution_kl, fre_loss_temp, train_mae_temp = TorchLossComputer.cross_entropy_power_spectrum_DLDL_softmax2(
                         rPPG[bb], torch.mean(targets[bb].float()), 30, std=1.0) 
                     fre_loss = fre_loss + fre_loss_temp
@@ -223,6 +223,7 @@ def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
                 fre_loss = fre_loss/inputs.shape[0]
                 kl_loss = kl_loss/inputs.shape[0]
                 train_mae = train_mae/inputs.shape[0]
+                print(train_mae)
                 if epoch >25:
                     a = 0.05
                     b = 5.0
@@ -233,15 +234,23 @@ def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
                 a = 0.1
             
                 loss =  a*loss_rPPG + b*(fre_loss+kl_loss)
+                """
+                #print(rPPG[0])
+                #print(targets[0])
                 
+                #fre_loss = sum(sum(rPPG - targets)/4)
+                #print(fre_loss)
+                #print(loss_rPPG)
+                
+                loss = loss_rPPG 
                 loss.backward()
                 optimizer.step()
                 
                 n = inputs.size(0)
                 loss_rPPG_avg.update(loss_rPPG.data, n)
-                loss_peak_avg.update(fre_loss.data, n)
-                loss_kl_avg_test.update(kl_loss.data, n)
-                loss_bvp_mae.update(train_mae, n)
+                #loss_peak_avg.update(fre_loss.data, n)
+                #loss_kl_avg_test.update(kl_loss.data, n)
+                #loss_bvp_mae.update(train_mae, n)
                 
                 
                 sys.stdout.write('\r')
@@ -261,6 +270,7 @@ def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
                 
 
     return model, loss, loss_rPPG_avg, loss_peak_avg, loss_kl_avg_test, loss_bvp_mae
+
 
 
 model = ViT_ST_ST_Compact3_TDC_gra_sharp(image_size=(160,160,160), patches=(4,16,16), dim=160, ff_dim=144, num_heads=4, num_layers=12, dropout_rate=0.1, theta=0.7)
