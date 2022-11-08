@@ -14,10 +14,13 @@ import pickle
 from typing import Optional
 import math
 import os
+import random
 
-import torchvision
-from torch.utils.tensorboard import SummaryWriter
-from torchvision import datasets, transforms
+from time import gmtime, strftime
+
+#import torchvision
+#from torch.utils.tensorboard import SummaryWriter
+#from torchvision import datasets, transforms
 
 
 from TorchLossComputer import TorchLossComputer
@@ -34,10 +37,10 @@ BLOCKS = 12
 BATCH = 300
 LENGTH = 160
 
-vhr.plot.VisualizeParams.renderer = 'notebook'  # or 'notebook'
+#vhr.plot.VisualizeParams.renderer = 'notebook'  # or 'notebook'
 
 dataset_name = 'pure'           
-video_DIR = '/var/datasets/VHR1/'  
+video_DIR = '/var/data/VHR1/'  
 BVP_DIR = '/var/datasets/VHR1/'    
 
 dataset = vhr.datasets.datasetFactory(dataset_name, videodataDIR=video_DIR, BVPdataDIR=BVP_DIR)
@@ -65,6 +68,8 @@ def load_data(tot):
     test_bvp = []
     for idx in range(0,tot):
         with open('/var/datasets/PURE_webs/'+str(idx)+'-WEBS-'+str(PATCH_SIZE), 'rb') as f:
+        #with open('/var/datasets/VIPL-HR-V1_webs/'+str(idx)+'-WEBS-'+str(PATCH_SIZE), 'rb') as f:
+
             #print('/var/datasets/PURE_webs/'+str(idx)+'-WEBS-'+str(PATCH_SIZE))
             (webs,labels) = pickle.load(f)
             if idx < ((tot/10)*9)-1:   #9 : 0 : 1
@@ -90,15 +95,16 @@ def load_data(tot):
 
 
 
-def save_ckp(model, optimizer, epoch, loss, iteration, path="."):
+def save_ckp(model, optimizer, loss, epoch, iteration, path=".",rPPG=None):
     checkpoint = {
         'epoch': epoch + 1,
         'iteration': iteration + 1,
         'state_dict': model.state_dict(),
         'optimizer': optimizer.state_dict(),
-        'loss': loss
+        'loss': loss,
+        'rPPG': rPPG
     }
-    f_path = path + '/checkpoint.pt'
+    f_path = path + '/'+ str(epoch +1) + 'checkpoint.pt'
     torch.save(checkpoint, f_path)
 
 
@@ -116,7 +122,7 @@ class Neg_Pearson(nn.Module):    # Pearson range [-1, 1] so if < 0, abs|loss| ; 
         return
     def forward(self, preds, labels):       # all variable operation    
         loss = 0
-        for i in range(preds.shape[0]):
+        for i in range(labels.shape[0]):
             sum_x = torch.sum(preds[i])
             sum_y = torch.sum(labels[i])
             sum_xy = torch.sum(preds[i]*labels[i])
@@ -143,33 +149,7 @@ class AvgrageMeter(object):
         self.cnt += n
         self.avg = self.sum / self.cnt
 
-
-
-(train_video,train_bvp),(val_video,val_bvp),(test_video,test_bvp) = load_data(7)
-
-train_video, train_bvp = torch.cat(train_video[:]), torch.cat(train_bvp[:])
-#val_video, val_bvp     = torch.cat(val_video[:]), torch.cat(val_bvp[:])
-test_video, test_bvp   = torch.cat(test_video[:]), torch.cat(test_bvp[:])
-
-
-BATCH = 4
-#train_video = train_video.permute(0,4,1,2,3)
-#val_video = val_video.permute(0,4,1,2,3)
-#test_video = test_video.permute(0,4,1,2,3)
-print(train_video.shape,train_bvp.shape)
-dataset = torch.utils.data.TensorDataset(train_video.permute(0,4,1,2,3),torch.as_tensor(train_bvp))
-trainloader = torch.utils.data.DataLoader(dataset,batch_size=BATCH, shuffle=True, num_workers=1)
-
-model = ViT_ST_ST_Compact3_TDC_gra_sharp(image_size=(160,160,160), patches=(4,16,16), dim=160, ff_dim=144, num_heads=4, num_layers=12, dropout_rate=0.1, theta=0.7)
-print(summary(model))
-
-optimizer = torch.optim.Adam(model.parameters())
-loss_function = nn.L1Loss()
-criterion_Pearson = Neg_Pearson() 
-
-loss = 0.0
-epochs = 15
-
+        
 def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
     criterion_reg = nn.MSELoss()
     criterion_L1loss = nn.L1Loss()
@@ -181,13 +161,16 @@ def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
     exp_a = 0.5
     exp_b = 5.0
     
-    writer = SummaryWriter()
+    #writer = SummaryWriter()
     
     path_log = 'LOG'
     isExists = os.path.exists(path_log)
     if not isExists:
         os.makedirs(path_log)
     log_file = open(path_log+'/LOG_log.txt', 'w')
+
+    checkpoint_dir = "models/" + strftime("%Y-%m-%d %H:%M:%S", gmtime())
+    os.mkdir(checkpoint_dir)
     
     for epoch in range(epoch_start, epochs):
         print("\nStarting epoch", epoch+1)
@@ -204,17 +187,23 @@ def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
                 iter_start = 0
                 inputs, targets = data
                 inputs, targets = inputs.float().cuda(), targets.float().cuda()
+                inputs_resized = torch.zeros((4,3,160,128,128)).float().cuda()
+                for j in range(0, inputs.shape[0]):
+                    inputs_resized[j] = torch.from_numpy(np.resize(inputs[j].cpu().numpy(),(3,160,128,128)))
+
                 
                 optimizer.zero_grad()
-                rPPG = model(inputs,0.2) 
-                rPPG = (rPPG-torch.mean(rPPG)) /torch.std(rPPG)
+                rPPG_nonorm = model(inputs_resized,0.2)
+                rPPG = (rPPG_nonorm-torch.mean(rPPG_nonorm)) /(torch.std(rPPG_nonorm))
                 #loss
+                
+                
                 loss = criterion_reg
                 loss_rPPG = criterion_Pearson(rPPG, targets)
                 fre_loss = 0.0
                 kl_loss = 0.0
                 train_mae = 0.0
-                """for bb in range(inputs.shape[0]):
+                for bb in range(inputs.shape[0]):
                     loss_distribution_kl, fre_loss_temp, train_mae_temp = TorchLossComputer.cross_entropy_power_spectrum_DLDL_softmax2(
                         rPPG[bb], torch.mean(targets[bb].float()), 30, std=1.0) 
                     fre_loss = fre_loss + fre_loss_temp
@@ -223,7 +212,7 @@ def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
                 fre_loss = fre_loss/inputs.shape[0]
                 kl_loss = kl_loss/inputs.shape[0]
                 train_mae = train_mae/inputs.shape[0]
-                print(train_mae)
+               
                 if epoch >25:
                     a = 0.05
                     b = 5.0
@@ -233,35 +222,37 @@ def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
             
                 a = 0.1
             
-                loss =  a*loss_rPPG + b*(fre_loss+kl_loss)
+                loss =  a*loss_rPPG + b*(fre_loss)#+kl_loss)
+                #loss =  loss_rPPG
                 """
-                #print(rPPG[0])
-                #print(targets[0])
-                
-                #fre_loss = sum(sum(rPPG - targets)/4)
-                #print(fre_loss)
-                #print(loss_rPPG)
-                
-                loss = loss_rPPG 
+                if(targets.shape[0]!=rPPG.shape[0]):
+                    rPPG = torch.split(rPPG,[targets.shape[0],rPPG.shape[0] - targets.shape[0]])[0]
+
+                #loss = torch.mean(torch.abs(rPPG - targets))  #MAE
+                loss = torch.mean(torch.pow((rPPG - targets),2))  #MSE
+                #loss = torch.sqrt(torch.mean(torch.pow((rPPG - targets),2)))  #RMSE
+                #loss = torch.mean(nn.CosineSimilarity()(rPPG,targets))
+                #loss = criterion_reg(rPPG,targets)
+                #loss = loss_rPPG
+                #loss = criterion_Pearson(rPPG, targets)
+                """
                 loss.backward()
                 optimizer.step()
-                
                 n = inputs.size(0)
                 loss_rPPG_avg.update(loss_rPPG.data, n)
-                #loss_peak_avg.update(fre_loss.data, n)
-                #loss_kl_avg_test.update(kl_loss.data, n)
-                #loss_bvp_mae.update(train_mae, n)
-                
+                loss_peak_avg.update(fre_loss.data, n)
+                loss_kl_avg_test.update(kl_loss.data, n)
+                loss_bvp_mae.update(train_mae, n)
+            
                 
                 sys.stdout.write('\r')
-                sys.stdout.write(f"Iteration {i+1}, loss= {loss/((i+1)*inputs.shape[0]):1.5f}, NegPearson= {loss_rPPG_avg.avg:1.5f}, kl= {loss_kl_avg_test.avg:1.5f}, fre_CEloss= {loss_peak_avg.avg:1.5f}")
+                sys.stdout.write(f"Iteration {i+1}, loss= {loss:1.5f}, NegPearson= {loss_rPPG_avg.avg:1.5f}, kl= {loss_kl_avg_test.avg:1.5f}, fre_CEloss= {loss_peak_avg.avg:1.5f}")
                 sys.stdout.flush()
                 
-                writer.add_scalar('Epoch '+str(epoch)+' Loss/train', loss/((i+1)*inputs.shape[0]), i)
-
-                save_ckp(model, optimizer, loss, epoch, i)
+                #writer.add_scalar('Epoch '+str(epoch)+' Loss/train', loss,i)
                 
                 if( i%50 == 0):
+                    save_ckp(model, optimizer, loss, epoch, i, path=checkpoint_dir, rPPG=rPPG_nonorm)
                     log_file.write("\n")        
                     log_file.write(f"Epoch {epoch+1}, Iteration {i+1}, loss= {loss/((i+1)*inputs.shape[0]):1.5f}, NegPearson= {loss_rPPG_avg.avg:1.5f}, kl= {loss_kl_avg_test.avg:1.5f}, fre_CEloss= {loss_peak_avg.avg:1.5f}")
                     log_file.write("\n")
@@ -271,9 +262,78 @@ def train(model, optimizer, trainloader, epoch_start=0, iter_start=0):
 
     return model, loss, loss_rPPG_avg, loss_peak_avg, loss_kl_avg_test, loss_bvp_mae
 
+def test_chunk1(model):
+    print(test_video.shape,test_bvp.shape)
+    dataset = torch.utils.data.TensorDataset(test_video.permute(0,4,1,2,3),test_bvp)
+    testloader = torch.utils.data.DataLoader(dataset, shuffle=True, num_workers=1)
+    model = model.cuda()
+    model.eval()
+
+    r=[random.randint(0,len(testloader)),random.randint(0,len(testloader)),random.randint(0,len(testloader))]
+    r=r+r
+    print(r)
+    
+    rPPG = []
+    gt = []
+    with torch.no_grad():
+        for i, data in enumerate(testloader):
+            if i in r:
+                inputs, targets = data
+                inputs, targets = inputs.float().cuda(), targets.float().cuda()
+            
+                inputs = torch.from_numpy(np.resize(inputs.cpu().numpy(),(1,3,160,128,128))).cuda()
+
+                rPPG.append((model(inputs, 2.0).cpu()[0]))
+                gt.append(targets.cpu()[0]/torch.std(targets.cpu()[0]))
+    return (rPPG,gt,r)
 
 
-model = ViT_ST_ST_Compact3_TDC_gra_sharp(image_size=(160,160,160), patches=(4,16,16), dim=160, ff_dim=144, num_heads=4, num_layers=12, dropout_rate=0.1, theta=0.7)
+def plot_result(rPPG,gt,title,r):
+    fig = plt.figure(figsize=(1, 3))
+    fig.suptitle(title)
+    for i in range(3):
+        print(torch.mean(torch.pow((rPPG[i] - gt[i]),2)))  #MSE
+        ax = fig.add_subplot(1, 3, i+1)
+        ax.plot(rPPG[i][10:],label="rPPG_chunck_"+str(r[i]))
+        ax.plot(gt[i],label="GT_chunck_"+str(r[i]))
+        ax.set_xlabel('frames')
+        ax.legend()
+    plt.show()
+
+    
+
+def test(model,optimizer,path='./checkpoint.pt',title=''):
+    model,_,_,_= load_ckp(model,optimizer,path=path)
+    (rPPG,gt,r) = test_chunk1(model)
+    for i in range(0,len(rPPG)): rPPG[i] = (rPPG[i]-torch.mean(rPPG[i]))/(torch.std(rPPG[i]))
+    plot_result(rPPG,gt,title,r)
+    
+(train_video,train_bvp),(val_video,val_bvp),(test_video,test_bvp) = load_data(7)
+
+train_video, train_bvp = torch.cat(train_video[:]), torch.cat(train_bvp[:])
+#val_video, val_bvp     = torch.cat(val_video[:]), torch.cat(val_bvp[:])
+test_video, test_bvp   = torch.cat(test_video[:]), torch.cat(test_bvp[:])
+
+
+BATCH = 4
+#train_video = train_video.permute(0,4,1,2,3)
+#val_video = val_video.permute(0,4,1,2,3)
+#test_video = test_video.permute(0,4,1,2,3)
+print(train_video.shape,train_bvp.shape)
+dataset = torch.utils.data.TensorDataset(train_video.permute(0,4,1,2,3),torch.as_tensor(train_bvp))
+trainloader = torch.utils.data.DataLoader(dataset,batch_size=BATCH, shuffle=True, num_workers=1)
+
+model = ViT_ST_ST_Compact3_TDC_gra_sharp(image_size=(160,128,128), patches=(4,4,4), dim=96, ff_dim=144, num_heads=4, num_layers=12, dropout_rate=0.1, theta=0.7)
+print(summary(model))
+
+optimizer = torch.optim.Adam(model.parameters())
+loss_function = nn.L1Loss()
+criterion_Pearson = Neg_Pearson() 
+
+loss = 0.0
+epochs = 10
+
+
 model = model.cuda()
 model.train() 
 print("iterations per epoch: ",len(trainloader)) 

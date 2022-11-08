@@ -1,17 +1,25 @@
+"""model.py - Model and module class for ViT.
+   They are built to mirror those in the official Jax implementation.
+"""
+
 from typing import Optional
 import torch
 from torch import nn
 from torch.nn import functional as F
 import math
-import pdb
 
 from transformer_layer import Transformer_ST_TDC_gra_sharp
+
+import pdb
 
 
 def as_tuple(x):
     return x if isinstance(x, tuple) else (x, x)
 
-
+'''
+Temporal Center-difference based Convolutional layer (3D version)
+theta: control the percentage of original convolution and centeral-difference convolution
+'''
 class CDC_T(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
                  padding=1, dilation=1, groups=1, bias=False, theta=0.6):
@@ -120,13 +128,13 @@ class ViT_ST_ST_Compact3_TDC_gra_sharp(nn.Module):
         
         
         self.upsample = nn.Sequential(
-            nn.Upsample(scale_factor=(8,1,1)),
+            nn.Upsample(scale_factor=(2,1,1)),
             nn.Conv3d(dim, dim, [3, 1, 1], stride=1, padding=(1,0,0)),   
             nn.BatchNorm3d(dim),
             nn.ELU(),
         )
         self.upsample2 = nn.Sequential(
-            nn.Upsample(scale_factor=(5,1,1)),
+            nn.Upsample(scale_factor=(2,1,1)),
             nn.Conv3d(dim, dim//2, [3, 1, 1], stride=1, padding=(1,0,0)),   
             nn.BatchNorm3d(dim//2),
             nn.ELU(),
@@ -149,6 +157,7 @@ class ViT_ST_ST_Compact3_TDC_gra_sharp(nn.Module):
 
 
     def forward(self, x, gra_sharp):
+        #print("@@@@@@", x.shape)
         b, c, t, fh, fw = x.shape
         
         x = self.Stem0(x)
@@ -161,19 +170,24 @@ class ViT_ST_ST_Compact3_TDC_gra_sharp(nn.Module):
         Trans_features2, Score2 =  self.transformer2(Trans_features, gra_sharp)  # [B, 4*4*40, 64]
         Trans_features3, Score3 =  self.transformer3(Trans_features2, gra_sharp)  # [B, 4*4*40, 64]
         
-        
+        #print("#######",Trans_features3.shape)
         #Trans_features3 = self.normLast(Trans_features3)
         
         # upsampling heads
         #features_last = Trans_features3.transpose(1, 2).view(b, self.dim, 40, 4, 4) # [B, 64, 40, 4, 4]
-        features_last = Trans_features3.transpose(1, 2).view(b, self.dim, 4, 5,2) # [B, 64, 40, 4, 4]
-        
+        #print(Trans_features3.shape)
+        features_last = Trans_features3.transpose(1, 2).view(b, self.dim, t//4, 4, 4) # [B, 64, 40, 4, 4]
+        #print(features_last.shape)
         features_last = self.upsample(features_last)		    # x [B, 64, 7*7, 80]
+        #print(features_last.shape)
         features_last = self.upsample2(features_last)		    # x [B, 32, 7*7, 160]
-
-        features_last = torch.mean(features_last,3)     # x [B, 32, 160, 4]  
+        #print(features_last.shape)
+        features_last = torch.mean(features_last,3)     # x [B, 32, 160, 4]
+        #print(features_last.shape)
         features_last = torch.mean(features_last,3)     # x [B, 32, 160]    
+        #print(features_last.shape)
         rPPG = self.ConvBlockLast(features_last)    # x [B, 1, 160]
+        #print(rPPG.shape)
         
         #pdb.set_trace()
         
@@ -183,4 +197,4 @@ class ViT_ST_ST_Compact3_TDC_gra_sharp(nn.Module):
         return rPPG
 
 
-    
+

@@ -9,6 +9,8 @@ import numpy as np
 import torch.nn.functional as F
 import pdb
 import torch.nn as nn
+import pickle
+import matplotlib.pyplot as plt
 
 # std = 2
 def normal_sampling(mean, label_k, std):
@@ -111,9 +113,9 @@ class TorchLossComputer(object):
     
     @staticmethod
     def cross_entropy_power_spectrum_DLDL_softmax2(inputs, target, Fs, std):
-
+        
         target_distribution = [normal_sampling(int(target), i, std) for i in range(140)]
-        print(target_distribution)
+        
         target_distribution = [i if i > 1e-15 else 1e-15 for i in target_distribution]
         target_distribution = torch.Tensor(target_distribution).cuda()
         

@@ -1,3 +1,7 @@
+"""
+Adapted from https://github.com/lukemelas/simple-bert
+"""
+ 
 import numpy as np
 from torch import nn
 from torch import Tensor 
@@ -7,8 +11,10 @@ import math
 
 import pdb
 
-
-
+'''
+Temporal Center-difference based Convolutional layer (3D version)
+theta: control the percentage of original convolution and centeral-difference convolution
+'''
 class CDC_T(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
                  padding=1, dilation=1, groups=1, bias=False, theta=0.6):
@@ -43,6 +49,7 @@ class CDC_T(nn.Module):
 
 
 def split_last(x, shape):
+    "split the last dimension to given shape"
     shape = list(shape)
     assert shape.count(-1) <= 1
     if -1 in shape:
@@ -51,6 +58,7 @@ def split_last(x, shape):
 
 
 def merge_last(x, n_dims):
+    "merge the last n_dims to a dimension"
     s = x.size()
     assert n_dims > 1 and n_dims < len(s)
     return x.view(*s[:-n_dims], -1)
@@ -58,6 +66,7 @@ def merge_last(x, n_dims):
 
 
 class MultiHeadedSelfAttention_TDC_gra_sharp(nn.Module):
+    """Multi-Headed Dot Product Attention with depth-wise Conv3d"""
     def __init__(self, dim, num_heads, dropout, theta):
         super().__init__()
         
@@ -94,7 +103,8 @@ class MultiHeadedSelfAttention_TDC_gra_sharp(nn.Module):
         # (B, S, D) -proj-> (B, S, D) -split-> (B, S, H, W) -trans-> (B, H, S, W)
         
         [B, P, C]=x.shape
-        x = x.transpose(1, 2).view(B, C, P//8, 4, 2)      # [B, dim, 40, 4, 4]
+        
+        x = x.transpose(1, 2).view(B, C, P//16, 4, 4)      # [B, dim, 40, 4, 4]
         q, k, v = self.proj_q(x), self.proj_k(x), self.proj_v(x)
         q = q.flatten(2).transpose(1, 2)  # [B, 4*4*40, dim]
         k = k.flatten(2).transpose(1, 2)  # [B, 4*4*40, dim]
@@ -140,7 +150,7 @@ class PositionWiseFeedForward_ST(nn.Module):
     def forward(self, x):    # [B, 4*4*40, 128]
         [B, P, C]=x.shape
         #x = x.transpose(1, 2).view(B, C, 40, 4, 4)      # [B, dim, 40, 4, 4]
-        x = x.transpose(1, 2).view(B, C, P//8, 4, 2)      # [B, dim, 40, 4, 4]
+        x = x.transpose(1, 2).view(B, C, P//16, 4, 4)      # [B, dim, 40, 4, 4]
         x = self.fc1(x)		              # x [B, ff_dim, 40, 4, 4]
         x = self.STConv(x)		          # x [B, ff_dim, 40, 4, 4]
         x = self.fc2(x)		              # x [B, dim, 40, 4, 4]
@@ -187,5 +197,3 @@ class Transformer_ST_TDC_gra_sharp(nn.Module):
             x, Score = block(x, gra_sharp)
         return x, Score
 
-
-    
